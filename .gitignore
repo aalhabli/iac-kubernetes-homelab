@@ -30,3 +30,7 @@ override.tf.json
 # --- Kubernetes / SOPS ---
 *-secret.yaml
 *.decrypted.*
+
+# --- direnv / local env ---
+.envrc
+.direnv/

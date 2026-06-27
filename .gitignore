@@ -1,0 +1,31 @@
+# --- OS & AI & Scratch ---
+# *.swp
+*~
+claude.md
+.gemini/
+PLAN.md
+
+# --- OpenTofu / Terraform ---
+# Ignore the plugin directories
+.terraform/
+.tofu/
+# VERY IMPORTANT: Ignore state files (these contain plaintext secrets!)
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+# Ignore variable files (these often contain your API keys)
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# --- Ansible ---
+*.retry
+
+# --- Kubernetes / SOPS ---
+# Ignore any unencrypted secret files you might test locally
+*-secret.yaml
+*.decrypted.*

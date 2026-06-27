@@ -9,12 +9,14 @@ PLAN.md
 # Ignore the plugin directories
 .terraform/
 .tofu/
-# VERY IMPORTANT: Ignore state files (these contain plaintext secrets!)
+
+# VERY IMPORTANT: Ignore state files
 *.tfstate
 *.tfstate.*
 crash.log
 crash.*.log
-# Ignore variable files (these often contain your API keys)
+
+# Ignore variable files
 *.tfvars
 *.tfvars.json
 override.tf
@@ -26,6 +28,5 @@ override.tf.json
 *.retry
 
 # --- Kubernetes / SOPS ---
-# Ignore any unencrypted secret files you might test locally
 *-secret.yaml
 *.decrypted.*

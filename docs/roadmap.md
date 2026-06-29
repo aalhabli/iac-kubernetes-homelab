@@ -4,7 +4,7 @@ A phased build plan. The point of phasing is judgment: a homelab can be an endle
 
 Phases map to GitHub milestones; work is tracked as issues under each.
 
-> **Legend:** ✅ done · 🚧 in progress · ⬜ not started
+> **Legend:** [Done] · [In Progress] · [Not Started]
 
 ---
 
@@ -12,12 +12,12 @@ Phases map to GitHub milestones; work is tracked as issues under each.
 
 | Phase | Theme | Status |
 |---|---|---|
-| **0** | Foundation — docs, decisions, host | ✅ |
-| **1** | IaC provisioning — OpenTofu + Ansible | ⬜ |
-| **2** | Kubernetes + GitOps — k3s + ArgoCD | ⬜ |
-| **3** | Core platform — networking, storage, secrets, TLS, observability | ⬜ |
-| **4** | Applications — the services I actually use | ⬜ |
-| **5** | Advanced — the deep-learning stretch | ⬜ |
+| **0** | Foundation — docs, decisions, host | [Done] |
+| **1** | IaC provisioning — OpenTofu + Ansible | [Not Started] |
+| **2** | Kubernetes + GitOps — k3s + ArgoCD | [Not Started] |
+| **3** | Core platform — networking, storage, secrets, TLS, observability | [Not Started] |
+| **4** | Applications — the services I actually use | [Not Started] |
+| **5** | Advanced — the deep-learning stretch | [Not Started] |
 
 ```mermaid
 graph LR
@@ -37,7 +37,7 @@ graph LR
 
 ---
 
-## Phase 0 — Foundation 🚧
+## Phase 0 — Foundation [Done]
 
 > **Goal:** A repo that reads as a deliberate, well-reasoned platform — and a host ready to build on — *before* writing a line of provisioning code.
 
@@ -55,7 +55,7 @@ graph LR
 
 ---
 
-## Phase 1 — IaC Provisioning ⬜
+## Phase 1 — IaC Provisioning [Not Started]
 
 > **Goal:** No click-ops. The entire VM/LXC topology is reproducible from code.
 
@@ -71,7 +71,7 @@ graph LR
 
 ---
 
-## Phase 2 — Kubernetes + GitOps ⬜
+## Phase 2 — Kubernetes + GitOps [Not Started]
 
 > **Goal:** A push to `main` is the only way to change the cluster.
 
@@ -87,7 +87,7 @@ graph LR
 
 ---
 
-## Phase 3 — Core Platform ⬜
+## Phase 3 — Core Platform [Not Started]
 
 > **Goal:** The platform services that everything else depends on — networking, storage, TLS, exposure, and observability.
 
@@ -106,14 +106,19 @@ graph LR
 
 ---
 
-## Phase 4 — Applications ⬜
+## Phase 4 — Applications [Not Started]
 
 > **Goal:** The services I actually use, deployed the same disciplined way as the platform.
 
 **Deliverables**
-- **Immich** — photo/video library on Longhorn, reached via Tailscale (native Android app, background backup), backed up per the 3-2-1 plan ([ADR-0007](decisions/adr-0007-cloudflare-tunnel.md) / [ADR-0009](decisions/adr-0009-backup-strategy.md)).
-- **Paperless-ngx** — document management on persistent storage.
-- **Syncthing** — for game saves across OSs and Obsidian notes across devices (sync, explicitly *not* backup).
+- **[Immich](https://github.com/immich-app/immich)** — photo/video library on Longhorn, reached via Tailscale (native Android app, background backup), backed up per the 3-2-1 plan ([ADR-0007](decisions/adr-0007-cloudflare-tunnel.md) / [ADR-0009](decisions/adr-0009-backup-strategy.md)).
+- **[Paperless-ngx](https://github.com/paperless-ngx/paperless-ngx)** — document management on persistent storage.
+- **[Syncthing](https://github.com/syncthing/syncthing)** — for game saves across OSs and Obsidian notes across devices (sync, explicitly *not* backup).
+- **[Plex](https://github.com/linuxserver/docker-plex)** — Media server utilizing the ThinkPad's 13th-gen Intel QuickSync for hardware transcoding.
+- **[qBittorrent](https://github.com/qbittorrent/qBittorrent)** — Torrent client for Linux ISOs and media acquisition.
+- **[Homepage](https://github.com/gethomepage/homepage)** — The central dashboard and entry point for the homelab.
+- **[n8n](https://github.com/n8n-io/n8n) & [Open WebUI](https://github.com/open-webui/open-webui)** — Hosted in Kubernetes, orchestrating AI YouTube channel generation and interacting with website visitors.
+- **Distributed AI (External)** — **[Ollama](https://github.com/ollama/ollama)** and **[ComfyUI](https://github.com/comfyanonymous/ComfyUI)** run bare-metal on the Arch Desktop Workstation to directly utilize the RTX 4090, serving API endpoints securely back to the Kubernetes cluster.
 - **alhabli.com** — the personal website, served via Cloudflare Tunnel.
 - Curated Grafana dashboards for the above.
 
@@ -123,7 +128,7 @@ graph LR
 
 ---
 
-## Phase 5 — Advanced (the deep-learning stretch) ⬜
+## Phase 5 — Advanced (the deep-learning stretch) [Not Started]
 
 > **Goal:** The "because I want to learn it properly" tier — adopted only once the platform underneath is stable.
 

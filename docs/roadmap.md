@@ -12,7 +12,7 @@ Phases map to GitHub milestones; work is tracked as issues under each.
 
 | Phase | Theme | Status |
 |---|---|---|
-| **0** | Foundation — docs, decisions, host | 🚧 |
+| **0** | Foundation — docs, decisions, host | ✅ |
 | **1** | IaC provisioning — OpenTofu + Ansible | ⬜ |
 | **2** | Kubernetes + GitOps — k3s + ArgoCD | ⬜ |
 | **3** | Core platform — networking, storage, secrets, TLS, observability | ⬜ |
@@ -27,7 +27,7 @@ graph LR
     P3 --> P4["Phase 4<br/>Applications"]
     P4 --> P5["Phase 5<br/>Advanced"]
 
-    style P0 fill:#f9d71c,stroke:#333,color:#000
+    style P0 fill:#bbf5cc,stroke:#333,color:#000
     style P1 fill:#e8e8e8,stroke:#333,color:#000
     style P2 fill:#e8e8e8,stroke:#333,color:#000
     style P3 fill:#e8e8e8,stroke:#333,color:#000
@@ -46,7 +46,7 @@ graph LR
 - The hero `README.md`: philosophy, architecture diagrams, stack table, this roadmap.
 - This roadmap and the docs backbone (`docs/architecture`, `docs/runbooks`).
 - Proxmox VE installed on the ThinkPad ([ADR-0001](decisions/adr-0001-proxmox-hypervisor.md)), with laptop-as-UPS power handling (lid/logind, `tlp` charge thresholds).
-- A network/VLAN plan documented as a diagram.
+- A network plan documented as a diagram.
 - PiHole on an LXC and Proxmox Backup Server standing up ([ADR-0003](decisions/adr-0003-workload-placement.md) — these live *outside* the cluster on purpose).
 
 **Exit criteria**

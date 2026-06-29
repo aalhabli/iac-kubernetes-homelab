@@ -223,7 +223,7 @@ homelab/
 ├── README.md                  # You are here
 ├── docs/
 │   ├── decisions/             # Architecture Decision Records (ADRs)
-│   ├── architecture/          # Diagrams: network/VLAN, topology, GitOps flow
+│   ├── architecture/          # Diagrams: network topology, GitOps flow
 │   ├── runbooks/              # Disaster recovery, node replacement, secret rotation
 │   └── roadmap.md             # The phased build plan
 ├── tofu/                      # OpenTofu — Proxmox VM/LXC provisioning
@@ -247,7 +247,7 @@ The `tofu/`, `ansible/`, `kubernetes/`, `scripts/`, and CI trees are scaffolded 
 
 | Phase | Theme | Status |
 |---|---|---|
-| 0 | Foundation — docs, decisions, host | In progress |
+| 0 | Foundation — docs, decisions, host | Done |
 | 1 | IaC provisioning — OpenTofu + Ansible | Not started |
 | 2 | Kubernetes + GitOps — k3s + ArgoCD | Not started |
 | 3 | Core platform — networking, storage, secrets, TLS, observability | Not started |

@@ -77,12 +77,19 @@ graph TB
             end
 
             subgraph apps["Applications"]
+                home["Homepage"]
                 immich["Immich"]
+                plex["Plex"]
+                sync["Syncthing"]
                 paperless["Paperless-ngx"]
                 web["alhabli.com"]
-                sync["Syncthing"]
             end
         end
+    end
+
+    subgraph work["RTX 4090 Workstation — separate machine, WiFi, different NAT"]
+        minio["MinIO on 8TB<br/>S3 backup target"]
+        vllm["vLLM<br/>OpenAI-compatible API"]
     end
 
     git["Git (main)"] -->|reconciles| argo
@@ -91,17 +98,21 @@ graph TB
 
     cf["Cloudflare Tunnel"] --> web
     ts["Tailscale"] -.admin and Immich.-> cluster
-    minio["MinIO on 8TB<br/>backup target"]
+    cluster -.backups + AI, over Tailscale.-> work
     lh -.backups.-> minio
     pbs -.images.-> minio
 
     classDef out fill:#fde2e2,stroke:#c0392b,color:#000;
     classDef ink fill:#e2ecfd,stroke:#2c6fbb,color:#000;
+    classDef ext fill:#fef3c7,stroke:#b7791f,color:#000;
     class dns,pbs out;
-    class cm,mlb,lh,eso,obs,immich,paperless,web,sync,argo ink;
+    class cm,mlb,lh,eso,obs,home,immich,plex,sync,paperless,web,argo ink;
+    class minio,vllm ext;
 ```
 
 The dotted boundary around DNS and backups is deliberate. The cluster depends on DNS to boot and on backups to recover, so neither can depend on the cluster to run. Keeping them at the Proxmox layer is what makes the lab safe to power off and back on without manual intervention ([ADR-0003](docs/decisions/adr-0003-workload-placement.md)).
+
+The 8 TB backup target and the GPU inference endpoint both live on the RTX 4090 workstation — a separate machine on WiFi behind a different NAT than the ethernet-attached homelab. The cluster reaches both over Tailscale rather than the LAN, since the two sides sit on different NATs and bridging the router is out of scope ([ADR-0010](docs/decisions/adr-0010-workstation-integration.md)).
 
 ---
 
@@ -113,8 +124,9 @@ The placement rule: a service may run inside Kubernetes only if Kubernetes does 
 |---|---|---|
 | PiHole / DNS | LXC (out of cluster) | The cluster resolves images and peers by name, so DNS is a bootstrap dependency of the cluster. A cold cluster cannot pull a DNS pod's image if DNS itself is a pod. |
 | Proxmox / PBS / core networking | Host / LXC | These are the substrate everything else runs on. |
-| Monitoring (Prometheus, Grafana, Loki) | Kubernetes | Observes the cluster from within; acceptable to lose while the cluster is down. |
-| Apps (Immich, Paperless, Syncthing, website) | Kubernetes | Benefit from self-healing, GitOps, ingress, and persistent volumes. |
+| Monitoring (Prometheus, Grafana) | Kubernetes | Observes the cluster from within; acceptable to lose while the cluster is down. |
+| Apps (Homepage, Immich, Plex, Syncthing, Paperless, website) | Kubernetes | Benefit from self-healing, GitOps, ingress, and persistent volumes. |
+| MinIO backup target · vLLM inference | Workstation (external, over Tailscale) | The 8 TB disk and RTX 4090 live on a separate machine on a different NAT; reached over the Tailnet, not the LAN ([ADR-0010](docs/decisions/adr-0010-workstation-integration.md)). |
 
 ---
 
@@ -192,7 +204,7 @@ graph TB
     class cloud,nas plan;
 ```
 
-A layered 3-2-1 strategy ([ADR-0009](docs/decisions/adr-0009-backup-strategy.md)) uses a purpose-built tool per data shape (Velero for cluster state, Longhorn for volumes, PBS for images, restic for files), all converging on one MinIO S3 endpoint. Longhorn's three replicas currently share one physical NVMe, so it guards against a VM or OS failure but not the loss of that disk; off-host backups are required, and the off-site copy is tracked as an explicit open item until Phase 5.
+A layered 3-2-1 strategy ([ADR-0009](docs/decisions/adr-0009-backup-strategy.md)) uses a purpose-built tool per data shape (Velero for cluster state, Longhorn for volumes, PBS for images, restic for files), all converging on one MinIO S3 endpoint. Longhorn's three replicas currently share one physical NVMe, so it guards against a VM or OS failure but not the loss of that disk; off-host backups are required, and the off-site copy is tracked as an explicit open item until Phase 7. The MinIO endpoint sits on the workstation across a separate NAT, so the cluster writes backups to it over Tailscale rather than the LAN ([ADR-0010](docs/decisions/adr-0010-workstation-integration.md)).
 
 ---
 
@@ -211,7 +223,8 @@ A layered 3-2-1 strategy ([ADR-0009](docs/decisions/adr-0009-backup-strategy.md)
 | Networking | MetalLB + Traefik; Cilium later | Real LoadBalancer IPs on bare metal — [ADR-0007](docs/decisions/adr-0007-cloudflare-tunnel.md) |
 | Storage | Longhorn (replicated) | HA volumes, snapshots, S3 backups — [ADR-0008](docs/decisions/adr-0008-longhorn-storage.md) |
 | Backups | Velero + Longhorn + PBS + restic to MinIO | Layered 3-2-1, tool per data shape — [ADR-0009](docs/decisions/adr-0009-backup-strategy.md) |
-| Observability | kube-prometheus-stack + Loki + Alloy | Metrics, logs, alerts — Phase 3 |
+| Observability | kube-prometheus-stack (Grafana-lean) | Metrics, dashboards, alerts; logs deferred — Phase 5 |
+| GPU inference | vLLM on the workstation, over Tailscale | OpenAI-compatible API on the RTX 4090 — [ADR-0010](docs/decisions/adr-0010-workstation-integration.md) |
 | Automation | Renovate + GitHub Actions | Dependency updates, lint/validate CI — Phase 0/1 |
 
 ---
@@ -234,7 +247,7 @@ homelab/
 ├── kubernetes/
 │   ├── bootstrap/             # ArgoCD install + root app-of-apps
 │   ├── infrastructure/        # cert-manager, ingress, metallb, longhorn, ESO, monitoring
-│   └── apps/                  # immich, paperless, syncthing, website
+│   └── apps/                  # homepage, immich, plex, syncthing, paperless, website
 ├── .github/workflows/         # CI: lint + validate (yamllint, kubeconform, tofu)
 └── scripts/                   # bootstrap and helper utilities
 ```
@@ -250,9 +263,13 @@ The `tofu/`, `ansible/`, `kubernetes/`, `scripts/`, and CI trees are scaffolded 
 | 0 | Foundation — docs, decisions, host | Done |
 | 1 | IaC provisioning — OpenTofu + Ansible | Not started |
 | 2 | Kubernetes + GitOps — k3s + ArgoCD | Not started |
-| 3 | Core platform — networking, storage, secrets, TLS, observability | Not started |
-| 4 | Applications — Immich, Paperless, Syncthing, website | Not started |
-| 5 | Advanced — Cilium, Vault, off-site backups, progressive delivery | Not started |
+| 3 | Minimum platform for apps — MetalLB, Longhorn, Tailscale, MinIO backups | Not started |
+| 4 | First applications — Homepage, Plex, qBittorrent, Syncthing, Immich | Not started |
+| 5 | Exposure, observability, backups — TLS, tunnel, Grafana, website | Not started |
+| 6 | Further applications — Paperless, n8n, Open WebUI, vLLM | Not started |
+| 7 | Advanced — Cilium, Vault, off-site backups, progressive delivery | Not started |
+
+Apps land early (Phase 4) on a deliberately minimal platform slice, so the lab is useful well before the full platform is finished. The reasoning is in the [roadmap](docs/roadmap.md).
 
 Full detail, deliverables, and exit criteria are in [docs/roadmap.md](docs/roadmap.md).
 
@@ -271,5 +288,6 @@ The reasoning behind every foundational choice:
 - [ADR-0007 — Tiered external access (Cloudflare Tunnel + Tailscale)](docs/decisions/adr-0007-cloudflare-tunnel.md)
 - [ADR-0008 — Longhorn for persistent storage](docs/decisions/adr-0008-longhorn-storage.md)
 - [ADR-0009 — Layered 3-2-1 backup strategy](docs/decisions/adr-0009-backup-strategy.md)
+- [ADR-0010 — Workstation integrated over Tailscale across a separate NAT](docs/decisions/adr-0010-workstation-integration.md)
 
 New decisions follow the [ADR template](docs/decisions/adr-0000-template.md).

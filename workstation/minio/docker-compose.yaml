@@ -1,0 +1,14 @@
+services:
+ minio:
+    image: quay.io/minio/minio
+    container_name: minio-backend
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9000:9000" # S3 API port
+      - "9001:9001" # Web UI console port
+    volumes:
+      - /mnt/28672c3b-e62a-4050-8b58-4b1a519413c7/home/abdullah/homelab-backups/minio-data
+    restart: unless-stopped

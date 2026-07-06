@@ -34,3 +34,7 @@ override.tf.json
 # --- direnv / local env ---
 .envrc
 .direnv/
+.env
+
+# --- Antigravity ---
+antigravity/

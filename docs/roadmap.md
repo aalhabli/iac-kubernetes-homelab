@@ -13,7 +13,7 @@ Phases map to GitHub milestones; work is tracked as issues under each.
 | Phase | Theme | Status |
 |---|---|---|
 | **0** | Foundation — docs, decisions, host | [Done] |
-| **1** | IaC provisioning — OpenTofu + Ansible | [Not Started] |
+| **1** | IaC provisioning — OpenTofu + Ansible | [In Progress] |
 | **2** | Kubernetes + GitOps — k3s + ArgoCD | [Not Started] |
 | **3** | Minimum platform for apps — MetalLB, Longhorn, Tailscale, MinIO backups | [Not Started] |
 | **4** | First applications — Homepage, Plex, qBittorrent, Syncthing, Immich | [Not Started] |
@@ -34,7 +34,7 @@ graph LR
     P6 --> P7["Phase 7<br/>Advanced"]
 
     style P0 fill:#bbf5cc,stroke:#333,color:#000
-    style P1 fill:#e8e8e8,stroke:#333,color:#000
+    style P1 fill:#fff3bf,stroke:#333,color:#000
     style P2 fill:#e8e8e8,stroke:#333,color:#000
     style P3 fill:#e8e8e8,stroke:#333,color:#000
     style P4 fill:#d6e8ff,stroke:#333,color:#000
@@ -63,15 +63,16 @@ graph LR
 
 ---
 
-## Phase 1 — IaC Provisioning [Not Started]
+## Phase 1 — IaC Provisioning [In Progress]
 
 > **Goal:** No click-ops. The entire VM/LXC topology is reproducible from code.
 
 **Deliverables**
 - A cloud-init VM template baked on Proxmox.
 - OpenTofu modules (`vm`, `lxc`, `k3s-node`) and a `homelab` environment that provisions the three k3s VMs ([ADR-0004](decisions/adr-0004-opentofu-vs-terraform.md)) via the `bpg/proxmox` provider.
-- Ansible roles (`base-hardening`, `common`, `k3s-server`, `k3s-agent`) and inventory — the **OpenTofu-creates / Ansible-configures** seam.
+- Ansible roles (`base-hardening`, `common`) and inventory — the **OpenTofu-creates / Ansible-configures** seam. The `k3s-server` and `k3s-agent` roles move to Phase 2, where they can actually be exercised and verified.
 - A remote/encrypted state backend for OpenTofu.
+- CI on every PR: `tofu fmt`/`tofu validate`, tflint, and ansible-lint, plus Renovate for dependency updates.
 
 **Exit criteria**
 - `tofu apply` produces three reachable, hardened VMs from nothing; `tofu destroy` + re-apply reproduces them faithfully.
@@ -84,10 +85,11 @@ graph LR
 > **Goal:** A push to `main` is the only way to change the cluster.
 
 **Deliverables**
-- k3s installed across the three nodes ([ADR-0002](decisions/adr-0002-k3s-vs-talos.md)) with embedded etcd HA; `servicelb` disabled (MetalLB comes in Phase 3), Traefik retained.
+- The Ansible `k3s-server` and `k3s-agent` roles, and k3s installed with them across the three nodes ([ADR-0002](decisions/adr-0002-k3s-vs-talos.md)) with embedded etcd HA; `servicelb` disabled (MetalLB comes in Phase 3), Traefik retained.
 - ArgoCD bootstrapped with the **app-of-apps** root ([ADR-0005](decisions/adr-0005-argocd-vs-flux.md)).
 - The **secrets bootstrap chain**: a SOPS+age-encrypted 1Password service-account token committed to Git, External Secrets Operator installed, first `ExternalSecret` resolving from 1Password ([ADR-0006](decisions/adr-0006-secrets-management.md)).
-- A first trivial app deployed end-to-end through GitOps as a pattern to replicate.
+- A first trivial app deployed end-to-end through GitOps as a pattern to replicate (verified via port-forward — there is no LoadBalancer until MetalLB lands in Phase 3).
+- CI extended to the manifests: yamllint and kubeconform on every PR.
 
 **Exit criteria**
 - Deleting a workload in the cluster and watching ArgoCD restore it from Git.
@@ -141,11 +143,13 @@ graph LR
 - **Observability**, kept lean and Grafana-centred: a trimmed kube-prometheus-stack (Prometheus + Grafana + Alertmanager). The heavier log pipeline (Loki + Alloy) is deferred to Phase 7 unless a clear need appears.
 - Curated Grafana dashboards for the deployed apps.
 - **alhabli.com** — the personal website, served publicly via Cloudflare Tunnel.
+- **Off-site copy of the Immich backups** (Backblaze B2 / Cloudflare R2). The full off-site tier stays in Phase 7, but photos are irreplaceable and both existing copies live in the same home — this closes that gap early for the data that matters most.
 
 **Exit criteria**
 - A service is reachable at `*.alhabli.com` over valid TLS with no inbound router ports open.
 - Grafana shows cluster + node metrics; an alert fires on a deliberately-broken target.
 - The website is publicly reachable; every Phase 5 service is a GitOps `Application`.
+- The Immich backup bucket replicates off-site, and a restore from the off-site copy succeeds.
 
 ---
 
@@ -203,6 +207,7 @@ graph LR
 ## Open follow-ups (decide at build time, non-blocking)
 - Ingress controller: retain Traefik (k3s default) vs. ingress-nginx — decide in Phase 3.
 - Start at 3 HA servers immediately vs. grow into HA from 1 server — resource/comfort call.
-- Off-site cloud provider for backups (B2 vs. R2) — deferred to Phase 7.
+- Off-site cloud provider for backups (B2 vs. R2) — the Immich bucket replicates off-site in Phase 5; the full off-site tier is deferred to Phase 7.
+- Whether Phase 3 should include a minimal monitoring slice (node-exporter plus a Longhorn volume-health alert) so stateful apps don't run blind until Phase 5.
 - When to migrate cold Immich media to an NFS tier on the future NAS.
 - Whether to add ComfyUI (image generation) alongside vLLM on the workstation — future.

@@ -1,58 +1,32 @@
-<div align="center">
-
 # Homelab
 
-**A single ThinkPad, run like a production platform.**
+This repository is the full definition of my homelab: a ThinkPad running Proxmox VE, a three-node k3s cluster on top of it, and everything the cluster runs. VMs are provisioned with OpenTofu, nodes are configured with Ansible, and workloads are deployed through ArgoCD. Once the GitOps layer is up, a push to `main` is the only way the cluster changes.
 
-Everything declarative, everything in Git, every decision written down.
+I'm building it in phases ([roadmap](docs/roadmap.md)) because I want to actually understand each layer before putting the next one on top. Every foundational choice has an [ADR](docs/decisions/) explaining the context, the alternatives I considered, and why I picked what I picked.
 
-![Hypervisor](https://img.shields.io/badge/hypervisor-Proxmox%20VE-E57000?logo=proxmox&logoColor=white)
-![Kubernetes](https://img.shields.io/badge/k8s-k3s-FFC61C?logo=k3s&logoColor=black)
-![IaC](https://img.shields.io/badge/IaC-OpenTofu-FFDA18?logo=opentofu&logoColor=black)
-![GitOps](https://img.shields.io/badge/GitOps-ArgoCD-EF7B4D?logo=argo&logoColor=white)
-![Config](https://img.shields.io/badge/config-Ansible-EE0000?logo=ansible&logoColor=white)
-![Secrets](https://img.shields.io/badge/secrets-1Password%20%2B%20ESO-0094F5?logo=1password&logoColor=white)
-![License](https://img.shields.io/badge/license-MIT-green)
+One rule shapes most of the architecture: a service may run inside Kubernetes only if Kubernetes can start without it. DNS and backups sit outside the cluster because the cluster needs them to boot and to recover ([ADR-0003](docs/decisions/adr-0003-workload-placement.md)).
 
-</div>
+## Principles
 
----
-
-## What this is
-
-This repository is the complete declarative definition of my homelab, along with the reasoning behind it. It runs the services I use day to day (photos, documents, my website, DNS) and is built like a small production platform: provisioned with Infrastructure as Code, configured with Ansible, and operated through GitOps. Nothing is clicked into existence. A push to `main` is the only way the cluster changes.
-
-I'm building it in phases ([see the roadmap](docs/roadmap.md)) so I can learn cloud-native platform engineering thoroughly rather than assemble a stack I can't reason about. The repo is meant to read as a coherent platform at every stage, including the trade-offs and the parts deliberately deferred.
-
-A recurring theme runs through the decisions: Kubernetes is a workload orchestrator, not a place to put everything. Which services run in the cluster, which stay out of it, and the reasoning for each are documented in [ADR-0003](docs/decisions/adr-0003-workload-placement.md).
-
----
-
-## Design principles
-
-1. **Everything is declarative and in Git.** Provisioning (OpenTofu), configuration (Ansible), and workloads (Kubernetes + ArgoCD) all live in version control.
-2. **GitOps is the single source of truth.** ArgoCD continuously reconciles the live cluster against `main` and surfaces drift automatically.
-3. **Right tool for the job.** A single-binary DNS resolver runs well in a small LXC; not every service belongs in a Deployment. The cluster orchestrates workloads; it is not a universal runtime.
-4. **Documented decisions over undocumented cleverness.** Every foundational choice is an [ADR](docs/decisions/) covering context, alternatives, the decision, and its consequences.
-5. **Built in phases.** A pragmatic start and an ambitious end-state, with the scoping and sequencing documented as part of the work.
-
----
+1. Everything is declarative and lives in Git: provisioning (OpenTofu), configuration (Ansible), workloads (Kubernetes manifests reconciled by ArgoCD).
+2. ArgoCD is the single source of truth for the cluster. It reconciles against `main` and surfaces drift.
+3. Services run wherever they fit best. A small DNS resolver belongs in an LXC; a photo library belongs in the cluster.
+4. Decisions get written down. Each ADR covers context, alternatives, the decision, and its consequences.
+5. The build is phased. Each phase has exit criteria, and I verify them before moving on.
 
 ## Hardware
 
 | | |
 |---|---|
-| **Compute** | ThinkPad L14 Gen 4 — Intel 13th-gen, 64 GB RAM, 2 TB NVMe |
-| **Power** | The laptop battery acts as a UPS for graceful shutdown on power loss ([ADR-0001](docs/decisions/adr-0001-proxmox-hypervisor.md)) |
-| **Backup target** | Workstation 8 TB NVMe running MinIO (S3), off-host and intermittent |
-| **Future** | Synology NAS (spinning disks) for always-on bulk capacity and an additional backup tier |
+| **Server** | ThinkPad L14 Gen 4 — Intel 13th-gen, 64 GB RAM, 2 TB NVMe |
+| **Power** | The laptop battery doubles as a UPS for graceful shutdown ([ADR-0001](docs/decisions/adr-0001-proxmox-hypervisor.md)) |
+| **Backup target** | RTX 4090 workstation with an 8 TB NVMe running MinIO, reached over Tailscale ([ADR-0010](docs/decisions/adr-0010-workstation-integration.md)) |
 | **Edge** | Cloudflare (DNS, Tunnel, WAF) in front of `alhabli.com` |
+| **Later** | Synology NAS for bulk storage and an extra backup tier |
 
-A laptop suits this role well. The built-in battery gives the host time to shut down cleanly when power is lost, and the machine idles at a few watts. The trade-off is that lid, sleep, and battery-charge behaviour have to be managed actively; that work is documented in [ADR-0001](docs/decisions/adr-0001-proxmox-hypervisor.md).
+A laptop works well here. The battery buys time for a clean shutdown when power drops, and the machine idles at a few watts. In exchange, lid, sleep, and charge behaviour need active management — that setup is documented in [ADR-0001](docs/decisions/adr-0001-proxmox-hypervisor.md).
 
----
-
-## System architecture
+## Architecture
 
 ```mermaid
 graph TB
@@ -73,7 +47,7 @@ graph TB
                 mlb["MetalLB"]
                 lh["Longhorn"]
                 eso["External Secrets"]
-                obs["Prometheus / Grafana / Loki"]
+                obs["Prometheus / Grafana"]
             end
 
             subgraph apps["Applications"]
@@ -110,27 +84,21 @@ graph TB
     class minio,vllm ext;
 ```
 
-The dotted boundary around DNS and backups is deliberate. The cluster depends on DNS to boot and on backups to recover, so neither can depend on the cluster to run. Keeping them at the Proxmox layer is what makes the lab safe to power off and back on without manual intervention ([ADR-0003](docs/decisions/adr-0003-workload-placement.md)).
+PiHole and PBS sit at the Proxmox layer on purpose. The cluster resolves images and peers by name, so DNS has to exist before the cluster does, and backups have to survive the cluster being gone. This is what makes the lab safe to power off and back on without manual intervention.
 
-The 8 TB backup target and the GPU inference endpoint both live on the RTX 4090 workstation — a separate machine on WiFi behind a different NAT than the ethernet-attached homelab. The cluster reaches both over Tailscale rather than the LAN, since the two sides sit on different NATs and bridging the router is out of scope ([ADR-0010](docs/decisions/adr-0010-workstation-integration.md)).
-
----
+The workstation is a separate machine on WiFi behind a different NAT than the ethernet-attached server. Bridging the router is out of scope, so the cluster reaches the MinIO backup target and the vLLM inference endpoint over Tailscale ([ADR-0010](docs/decisions/adr-0010-workstation-integration.md)).
 
 ## What runs where
 
-The placement rule: a service may run inside Kubernetes only if Kubernetes does not depend on it in order to start.
-
-| Workload | Placement | Reasoning |
+| Workload | Placement | Why |
 |---|---|---|
-| PiHole / DNS | LXC (out of cluster) | The cluster resolves images and peers by name, so DNS is a bootstrap dependency of the cluster. A cold cluster cannot pull a DNS pod's image if DNS itself is a pod. |
-| Proxmox / PBS / core networking | Host / LXC | These are the substrate everything else runs on. |
-| Monitoring (Prometheus, Grafana) | Kubernetes | Observes the cluster from within; acceptable to lose while the cluster is down. |
-| Apps (Homepage, Immich, Plex, Syncthing, Paperless, website) | Kubernetes | Benefit from self-healing, GitOps, ingress, and persistent volumes. |
-| MinIO backup target · vLLM inference | Workstation (external, over Tailscale) | The 8 TB disk and RTX 4090 live on a separate machine on a different NAT; reached over the Tailnet, not the LAN ([ADR-0010](docs/decisions/adr-0010-workstation-integration.md)). |
+| PiHole / DNS | LXC, outside the cluster | The cluster needs DNS to pull images. A cold cluster can't pull a DNS pod's image if DNS is a pod. |
+| Proxmox / PBS / core networking | Host / LXC | The substrate everything else runs on. |
+| Monitoring (Prometheus, Grafana) | Kubernetes | Observes the cluster from within. Losing it while the cluster is down is acceptable. |
+| Apps (Homepage, Immich, Plex, Syncthing, Paperless, website) | Kubernetes | Get self-healing, GitOps, ingress, and persistent volumes for free. |
+| MinIO backup target, vLLM inference | Workstation, over Tailscale | The 8 TB disk and the GPU live on a separate machine behind a different NAT. |
 
----
-
-## GitOps reconciliation flow
+## How changes reach the cluster
 
 ```mermaid
 sequenceDiagram
@@ -143,7 +111,7 @@ sequenceDiagram
     participant OP as 1Password
 
     Me->>Git: git push (manifests / Helm values)
-    Git->>CI: trigger lint and validate (yamllint, kubeconform, tofu)
+    Git->>CI: lint and validate (yamllint, kubeconform, tofu)
     CI-->>Git: checks pass
     Argo->>Git: poll / webhook — detect new desired state
     Argo->>K8s: apply diff (sync waves)
@@ -153,20 +121,18 @@ sequenceDiagram
     Argo-->>Me: Synced and Healthy (or drift surfaced)
 ```
 
-No human runs `kubectl apply` against the cluster. CI validates the change, ArgoCD makes the cluster match Git, and the External Secrets Operator pulls secrets from 1Password at sync time so nothing sensitive is committed ([ADR-0005](docs/decisions/adr-0005-argocd-vs-flux.md), [ADR-0006](docs/decisions/adr-0006-secrets-management.md)).
-
----
+Nobody runs `kubectl apply` against the cluster. CI validates the change (the workflows land alongside the code they check, starting in Phase 1), ArgoCD makes the cluster match Git, and the External Secrets Operator pulls secret values from 1Password at sync time. The only encrypted material in the repo is a single SOPS+age bootstrap token ([ADR-0006](docs/decisions/adr-0006-secrets-management.md)).
 
 ## External access
 
 ```mermaid
 graph LR
-    pub["Public internet"] -->|HTML / website| cf["Cloudflare Tunnel<br/>no open inbound ports"]
+    pub["Public internet"] -->|website| cf["Cloudflare Tunnel<br/>no open inbound ports"]
     phone["My phone / devices"] -->|private overlay| tail["Tailscale"]
 
     cf --> traefik["Traefik ingress"]
     tail --> traefik
-    tail -.->|large media, no proxy limits| immich["Immich"]
+    tail -.->|large media uploads| immich["Immich"]
     tail -.->|admin| adminui["Proxmox · ArgoCD · Grafana"]
     traefik --> svc["k8s Services"]
 
@@ -174,9 +140,7 @@ graph LR
     class cf,tail edge;
 ```
 
-Access is split into three tiers ([ADR-0007](docs/decisions/adr-0007-cloudflare-tunnel.md)). Cloudflare Tunnel publishes the website with no open router ports and the home IP hidden. Tailscale carries admin surfaces and Immich over a private overlay. Immich stays off the Cloudflare proxy because its 100 MB request cap and non-HTML media terms would break photo and video uploads; over Tailscale the native Android app backs up in the background with no such limits.
-
----
+Access is split by audience ([ADR-0007](docs/decisions/adr-0007-cloudflare-tunnel.md)). The website goes out through a Cloudflare Tunnel, so no router ports are open and the home IP stays hidden. Admin surfaces and Immich ride Tailscale. Immich skips the Cloudflare proxy because the 100 MB request cap and the media terms would break photo and video uploads; over Tailscale the native Android app backs up in the background without those limits.
 
 ## Storage and backups
 
@@ -188,14 +152,12 @@ graph TB
     subgraph cold["Backup tier — off-host, intermittent"]
         minio["MinIO (S3) on workstation 8 TB"]
     end
-    subgraph offsite["Off-site — deferred (Phase 5)"]
+    subgraph offsite["Off-site — deferred (Phase 7)"]
         cloud["Backblaze B2 / Cloudflare R2"]
         nas["Synology NAS (HDD)"]
     end
 
-    lh -->|Velero: cluster state| minio
     lh -->|Longhorn: PV data| minio
-    lh -->|restic: files| minio
     pbs["Proxmox Backup Server<br/>VM/LXC images"] --> minio
     minio -.planned.-> cloud
     minio -.planned.-> nas
@@ -204,90 +166,63 @@ graph TB
     class cloud,nas plan;
 ```
 
-A layered 3-2-1 strategy ([ADR-0009](docs/decisions/adr-0009-backup-strategy.md)) uses a purpose-built tool per data shape (Velero for cluster state, Longhorn for volumes, PBS for images, restic for files), all converging on one MinIO S3 endpoint. Longhorn's three replicas currently share one physical NVMe, so it guards against a VM or OS failure but not the loss of that disk; off-host backups are required, and the off-site copy is tracked as an explicit open item until Phase 7. The MinIO endpoint sits on the workstation across a separate NAT, so the cluster writes backups to it over Tailscale rather than the LAN ([ADR-0010](docs/decisions/adr-0010-workstation-integration.md)).
+The backup strategy ([ADR-0009](docs/decisions/adr-0009-backup-strategy.md)) works toward 3-2-1 with a purpose-built tool per data shape: Longhorn backs up volumes, PBS backs up VM and LXC images, and Velero for cluster state comes later. Everything converges on the MinIO endpoint on the workstation, over Tailscale.
 
----
+Two limits are worth being honest about. Longhorn's replicas all share one physical NVMe, so replication guards against a VM or OS failure and does nothing for the loss of that disk — that's what the off-host MinIO copy is for. And until the off-site tier lands in Phase 7, every copy of the data lives in the same home; that gap is a tracked, deliberate deferral.
 
-## The stack
+## Stack
 
-| Layer | Choice | Reasoning (ADR) |
+| Layer | Choice | ADR |
 |---|---|---|
-| Hypervisor | Proxmox VE on a laptop | Battery-as-UPS, LXC + VM, API for IaC — [ADR-0001](docs/decisions/adr-0001-proxmox-hypervisor.md) |
-| Kubernetes | k3s (HA, embedded etcd) | Low overhead, strong learning surface — [ADR-0002](docs/decisions/adr-0002-k3s-vs-talos.md) |
-| Workload placement | k8s vs LXC by bootstrap-dependency rule | Cold-start safety, blast-radius isolation — [ADR-0003](docs/decisions/adr-0003-workload-placement.md) |
-| Provisioning | OpenTofu + `bpg/proxmox` | Open-source licence, reproducible, reviewable — [ADR-0004](docs/decisions/adr-0004-opentofu-vs-terraform.md) |
-| Configuration | Ansible (+ cloud-init) | OpenTofu creates, Ansible configures — [ADR-0004](docs/decisions/adr-0004-opentofu-vs-terraform.md) |
-| GitOps | ArgoCD, app-of-apps | Pull-based, visible reconciliation, simple DR bootstrap — [ADR-0005](docs/decisions/adr-0005-argocd-vs-flux.md) |
-| Secrets | 1Password + External Secrets Operator | No secrets committed; SOPS+age only for the bootstrap token — [ADR-0006](docs/decisions/adr-0006-secrets-management.md) |
-| External access | Cloudflare Tunnel + Tailscale | No open ports; per-audience exposure tiers — [ADR-0007](docs/decisions/adr-0007-cloudflare-tunnel.md) |
-| Networking | MetalLB + Traefik; Cilium later | Real LoadBalancer IPs on bare metal — [ADR-0007](docs/decisions/adr-0007-cloudflare-tunnel.md) |
-| Storage | Longhorn (replicated) | HA volumes, snapshots, S3 backups — [ADR-0008](docs/decisions/adr-0008-longhorn-storage.md) |
-| Backups | Velero + Longhorn + PBS + restic to MinIO | Layered 3-2-1, tool per data shape — [ADR-0009](docs/decisions/adr-0009-backup-strategy.md) |
-| Observability | kube-prometheus-stack (Grafana-lean) | Metrics, dashboards, alerts; logs deferred — Phase 5 |
-| GPU inference | vLLM on the workstation, over Tailscale | OpenAI-compatible API on the RTX 4090 — [ADR-0010](docs/decisions/adr-0010-workstation-integration.md) |
-| Automation | Renovate + GitHub Actions | Dependency updates, lint/validate CI — Phase 0/1 |
+| Hypervisor | Proxmox VE on a laptop | [0001](docs/decisions/adr-0001-proxmox-hypervisor.md) |
+| Kubernetes | k3s, HA with embedded etcd | [0002](docs/decisions/adr-0002-k3s-vs-talos.md) |
+| Workload placement | Bootstrap-dependency rule | [0003](docs/decisions/adr-0003-workload-placement.md) |
+| Provisioning | OpenTofu + `bpg/proxmox` | [0004](docs/decisions/adr-0004-opentofu-vs-terraform.md) |
+| Configuration | Ansible + cloud-init | [0004](docs/decisions/adr-0004-opentofu-vs-terraform.md) |
+| GitOps | ArgoCD, app-of-apps | [0005](docs/decisions/adr-0005-argocd-vs-flux.md) |
+| Secrets | 1Password + External Secrets Operator, SOPS+age bootstrap | [0006](docs/decisions/adr-0006-secrets-management.md) |
+| External access | Cloudflare Tunnel + Tailscale | [0007](docs/decisions/adr-0007-cloudflare-tunnel.md) |
+| Networking | MetalLB + Traefik; Cilium later | [0007](docs/decisions/adr-0007-cloudflare-tunnel.md) |
+| Storage | Longhorn | [0008](docs/decisions/adr-0008-longhorn-storage.md) |
+| Backups | Longhorn + PBS + Velero to MinIO | [0009](docs/decisions/adr-0009-backup-strategy.md) |
+| Observability | kube-prometheus-stack, trimmed | roadmap Phase 5 |
+| GPU inference | vLLM on the workstation over Tailscale | [0010](docs/decisions/adr-0010-workstation-integration.md) |
 
----
-
-## Repository structure
+## Repository layout
 
 ```
 homelab/
-├── README.md                  # You are here
 ├── docs/
-│   ├── decisions/             # Architecture Decision Records (ADRs)
-│   ├── architecture/          # Diagrams: network topology, GitOps flow
-│   ├── runbooks/              # Disaster recovery, node replacement, secret rotation
+│   ├── decisions/             # ADRs
+│   ├── architecture/          # Diagrams
+│   ├── runbooks/              # DR, provisioning, maintenance
+│   ├── systems/               # How each system is actually set up
 │   └── roadmap.md             # The phased build plan
 ├── tofu/                      # OpenTofu — Proxmox VM/LXC provisioning
-│   ├── modules/               #   reusable vm / lxc / k3s-node modules
+│   ├── modules/
 │   └── environments/homelab/
 ├── ansible/                   # Node hardening + k3s bootstrap
-│   ├── inventory/  roles/  playbooks/
 ├── kubernetes/
 │   ├── bootstrap/             # ArgoCD install + root app-of-apps
-│   ├── infrastructure/        # cert-manager, ingress, metallb, longhorn, ESO, monitoring
-│   └── apps/                  # homepage, immich, plex, syncthing, paperless, website
-├── .github/workflows/         # CI: lint + validate (yamllint, kubeconform, tofu)
-└── scripts/                   # bootstrap and helper utilities
+│   ├── infrastructure/        # metallb, longhorn, cert-manager, ESO, monitoring
+│   └── apps/                  # immich, plex, homepage, ...
+├── workstation/               # MinIO compose file for the backup target
+└── .github/workflows/         # CI: lint + validate
 ```
 
-The `tofu/`, `ansible/`, `kubernetes/`, `scripts/`, and CI trees are scaffolded and filled in phase by phase. Documentation is written ahead of the implementation it describes.
+Directories are scaffolded ahead of the phase that fills them in, so some of them currently hold only a README describing what will live there.
 
----
-
-## Roadmap snapshot
+## Status
 
 | Phase | Theme | Status |
 |---|---|---|
 | 0 | Foundation — docs, decisions, host | Done |
-| 1 | IaC provisioning — OpenTofu + Ansible | Not started |
+| 1 | IaC provisioning — OpenTofu + Ansible | In progress |
 | 2 | Kubernetes + GitOps — k3s + ArgoCD | Not started |
-| 3 | Minimum platform for apps — MetalLB, Longhorn, Tailscale, MinIO backups | Not started |
-| 4 | First applications — Homepage, Plex, qBittorrent, Syncthing, Immich | Not started |
-| 5 | Exposure, observability, backups — TLS, tunnel, Grafana, website | Not started |
-| 6 | Further applications — Paperless, n8n, Open WebUI, vLLM | Not started |
-| 7 | Advanced — Cilium, Vault, off-site backups, progressive delivery | Not started |
+| 3 | Minimum platform — MetalLB, Longhorn, Tailscale, MinIO backups | Not started |
+| 4 | First apps — Homepage, Plex, qBittorrent, Syncthing, Immich | Not started |
+| 5 | Exposure and observability — TLS, tunnel, Grafana, website | Not started |
+| 6 | Further apps — Paperless, n8n, Open WebUI, vLLM | Not started |
+| 7 | Advanced — Cilium, Vault, off-site backups, DR rehearsal | Not started |
 
-Apps land early (Phase 4) on a deliberately minimal platform slice, so the lab is useful well before the full platform is finished. The reasoning is in the [roadmap](docs/roadmap.md).
-
-Full detail, deliverables, and exit criteria are in [docs/roadmap.md](docs/roadmap.md).
-
----
-
-## Decision records
-
-The reasoning behind every foundational choice:
-
-- [ADR-0001 — Proxmox VE on a laptop (battery-as-UPS)](docs/decisions/adr-0001-proxmox-hypervisor.md)
-- [ADR-0002 — k3s over vanilla k8s / Talos](docs/decisions/adr-0002-k3s-vs-talos.md)
-- [ADR-0003 — What runs in Kubernetes vs. LXC/VM](docs/decisions/adr-0003-workload-placement.md)
-- [ADR-0004 — OpenTofu over Terraform](docs/decisions/adr-0004-opentofu-vs-terraform.md)
-- [ADR-0005 — ArgoCD + app-of-apps over Flux](docs/decisions/adr-0005-argocd-vs-flux.md)
-- [ADR-0006 — 1Password + ESO for secrets](docs/decisions/adr-0006-secrets-management.md)
-- [ADR-0007 — Tiered external access (Cloudflare Tunnel + Tailscale)](docs/decisions/adr-0007-cloudflare-tunnel.md)
-- [ADR-0008 — Longhorn for persistent storage](docs/decisions/adr-0008-longhorn-storage.md)
-- [ADR-0009 — Layered 3-2-1 backup strategy](docs/decisions/adr-0009-backup-strategy.md)
-- [ADR-0010 — Workstation integrated over Tailscale across a separate NAT](docs/decisions/adr-0010-workstation-integration.md)
-
-New decisions follow the [ADR template](docs/decisions/adr-0000-template.md).
+Apps land in Phase 4 on a deliberately minimal platform slice, so the lab becomes useful well before the platform is finished. Deliverables and exit criteria per phase are in [docs/roadmap.md](docs/roadmap.md); work is tracked as GitHub issues under per-phase milestones.

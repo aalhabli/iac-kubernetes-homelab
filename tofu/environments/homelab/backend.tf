@@ -4,9 +4,11 @@ terraform {
     key    = "homelab/terraform.tfstate"
     region = "us-east-1"
 
-    # MinIO endpoint on the workstation, via Tailscale MagicDNS so the
-    # backend survives the node being reassigned a new Tailnet IP
-    endpoints = { s3 = "http://omarchy.tail12d19f.ts.net:9000" }
+    # MinIO endpoint on the workstation, over the LAN (ADR-0011). Resolved by
+    # a PiHole local DNS record so the endpoint survives the host moving or
+    # being reassigned an address. Named for the service rather than the host,
+    # so Longhorn, PBS and Velero can share it and MinIO can relocate later.
+    endpoints = { s3 = "http://minio.lab.alhabli.com:9000" }
 
     # MinIO requires path-style routing instead of virtual host-style routing
     use_path_style = true

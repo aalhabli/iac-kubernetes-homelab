@@ -1,7 +1,10 @@
 # Workstation Integrated Over Tailscale Across a Separate NAT
 
-* Status: Accepted
+* Status: Superseded by [ADR-0011](adr-0011-flat-l2-network.md)
 * Date: 2026-07-05
+* Superseded: 2026-08-15
+
+> **Superseded.** The network constraint this ADR was written against no longer exists. A dedicated switch now puts the workstation and the homelab host on one L2 segment, so the cluster reaches MinIO and vLLM over the LAN. Tailscale is retained for off-network access only. See [ADR-0011](adr-0011-flat-l2-network.md). The record below is kept unchanged as the decision that was made at the time.
 
 ## Context and Problem Statement
 Two of the lab's roles live on the RTX 4090 workstation rather than the ThinkPad homelab server: the 8 TB MinIO backup target ([ADR-0009](adr-0009-backup-strategy.md)) and GPU inference (vLLM, and possibly image generation later). The workstation is a **separate physical machine from the homelab server**. It is on **WiFi behind a different NAT**, while the homelab server is on **ethernet behind another NAT**; the two are not on the same L2 segment. Converting the TP-Link router to an AP/bridge to flatten them onto one subnet is not an option. The cluster nevertheless needs to reach the workstation reliably — to write Longhorn/Velero/restic backups to MinIO, and for in-cluster apps (Open WebUI, n8n) to call the vLLM API — without opening inbound ports or exposing either service to the LAN or the internet.

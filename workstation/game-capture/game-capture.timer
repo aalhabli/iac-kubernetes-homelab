@@ -1,0 +1,15 @@
+[Unit]
+Description=Periodic game screenshot capture
+Documentation=https://github.com/aalhabli/iac-kubernetes-homelab/tree/main/workstation/game-capture
+
+[Timer]
+# Two minutes is deliberate. A grand strategy session produces enough frames to
+# reconstruct the shape of a game without generating a vision bill that makes
+# the review not worth running. Decision moments come from the manual keybinding.
+OnUnitActiveSec=2min
+OnStartupSec=1min
+AccuracySec=10s
+Unit=game-capture.service
+
+[Install]
+WantedBy=timers.target

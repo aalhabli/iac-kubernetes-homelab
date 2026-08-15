@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+#
+# Capture a screenshot when a configured game is the focused window.
+#
+# Run with no arguments from a timer for periodic capture, or with --now from a
+# keybinding to mark a specific moment. Frames are downscaled and written as
+# JPEG alongside a JSONL log of window titles, which for grand strategy games
+# usually carry the in-game date or turn.
+#
+set -euo pipefail
+
+CONFIG="${GAME_CAPTURE_CONFIG:-$HOME/.config/game-capture/games.conf}"
+ROOT="${GAME_CAPTURE_DIR:-$HOME/Pictures/game-captures}"
+WIDTH="${GAME_CAPTURE_WIDTH:-1920}"
+QUALITY="${GAME_CAPTURE_QUALITY:-85}"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/game-capture"
+
+usage() {
+  cat <<'EOF'
+Usage: game-capture [--now | --which | --help]
+
+  (no args)  Capture only if a configured game is focused. Intended for the timer.
+  --now      Capture the focused window regardless of the game list. For a keybinding.
+  --which    Print the focused window's class and title, then exit. Use this to
+             learn a game's window class so it can be added to games.conf.
+
+Environment:
+  GAME_CAPTURE_CONFIG   game list          (default ~/.config/game-capture/games.conf)
+  GAME_CAPTURE_DIR      output root        (default ~/Pictures/game-captures)
+  GAME_CAPTURE_WIDTH    downscale width    (default 1920)
+  GAME_CAPTURE_QUALITY  JPEG quality       (default 85)
+  GAME_CAPTURE_MIN_CHANGE
+                        drop a frame whose RMSE against the last kept frame is
+                        below this, 0 disables  (default 0.01)
+EOF
+}
+
+mode=auto
+case "${1:-}" in
+  --now)          mode=marked ;;
+  --which)        hyprctl activewindow -j | jq -r '"class: \(.class // "")\ntitle: \(.title // "")"'; exit 0 ;;
+  --help|-h)      usage; exit 0 ;;
+  "")             ;;
+  *)              usage >&2; exit 2 ;;
+esac
+
+# Never capture the lock screen.
+pgrep -x hyprlock >/dev/null 2>&1 && exit 0
+
+win=$(hyprctl activewindow -j 2>/dev/null) || exit 0
+[ -n "$win" ] && [ "$win" != "null" ] || exit 0
+
+class=$(jq -r '.class // ""' <<<"$win")
+title=$(jq -r '.title // ""' <<<"$win")
+[ -n "$class" ] || exit 0
+
+# Match the focused window against the game list. Each non-comment line is a
+# slug followed by an extended regex, tested case-insensitively against both the
+# window class and the title.
+slug=""
+if [ -r "$CONFIG" ]; then
+  shopt -s nocasematch
+  while read -r candidate regex _; do
+    case "$candidate" in ''|'#'*) continue ;; esac
+    [ -n "$regex" ] || continue
+    if [[ "$class" =~ $regex ]] || [[ "$title" =~ $regex ]]; then
+      slug="$candidate"
+      break
+    fi
+  done < "$CONFIG"
+  shopt -u nocasematch
+fi
+
+if [ -z "$slug" ]; then
+  # The timer stays silent on a non-game window; an explicit capture still lands.
+  [ "$mode" = marked ] || exit 0
+  slug="unsorted"
+fi
+
+day=$(date +%Y-%m-%d)
+dir="$ROOT/$slug/$day"
+mkdir -p "$dir" "$STATE"
+
+name=$(date +%H%M%S)
+[ "$mode" = marked ] && name="${name}-marked"
+
+# Timestamps are second-resolution, so two captures in the same second would
+# otherwise overwrite each other. Easy to hit by pressing the mark key twice.
+out="$dir/$name.jpg"
+n=2
+while [ -e "$out" ]; do
+  out="$dir/$name-$n.jpg"
+  n=$((n + 1))
+done
+
+# grim emits PPM fastest; ImageMagick does the downscale and JPEG encode.
+grim -t ppm - | magick ppm:- -resize "${WIDTH}x>" -quality "$QUALITY" "$out"
+
+# Drop frames that are visually unchanged from the last kept one, so a session's
+# captures reflect actual play rather than time spent paused or alt-tabbed.
+#
+# This compares pixels rather than hashing bytes. Byte comparison is useless
+# here: a clock in the status bar or a single animated sprite changes the hash
+# while the frame is, for review purposes, the same picture. RMSE on a live
+# desktop measures ~0.036 for a clock tick alone, so the default threshold is
+# set well below that — the intent is to catch a genuinely frozen screen, not to
+# judge whether a change was interesting.
+THRESHOLD="${GAME_CAPTURE_MIN_CHANGE:-0.01}"
+last_link="$STATE/$slug.last.jpg"
+
+if [ "$mode" != marked ] && [ -r "$last_link" ]; then
+  # compare exits non-zero whenever the images differ at all, so the metric is
+  # read from stderr and the exit status ignored. A failure to compare at all
+  # (a resolution change, say) yields an empty value and the frame is kept.
+  diff=$(magick compare -metric RMSE "$last_link" "$out" null: 2>&1 >/dev/null || true)
+  diff=$(sed -n 's/.*(\([0-9.e-]*\)).*/\1/p' <<<"$diff")
+  if [ -n "$diff" ] && awk -v d="$diff" -v t="$THRESHOLD" 'BEGIN{exit !(d < t)}'; then
+    rm -f "$out"
+    exit 0
+  fi
+fi
+
+cp -f "$out" "$last_link"
+
+jq -cn \
+  --arg ts "$(date -Is)" \
+  --arg game "$slug" \
+  --arg class "$class" \
+  --arg title "$title" \
+  --arg file "$out" \
+  --arg mode "$mode" \
+  '{ts:$ts, game:$game, class:$class, title:$title, file:$file, mode:$mode}' \
+  >> "$dir/session.jsonl"
+
+# Only the explicit capture is worth interrupting the game for.
+[ "$mode" = marked ] && command -v omarchy-notification-send >/dev/null 2>&1 \
+  && omarchy-notification-send "Marked: $slug" -t 1500
+
+exit 0

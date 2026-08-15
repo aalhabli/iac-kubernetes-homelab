@@ -1,0 +1,15 @@
+[Unit]
+Description=Capture a screenshot if a configured game is focused
+Documentation=https://github.com/aalhabli/iac-kubernetes-homelab/tree/main/workstation/game-capture
+# Hyprland exports its socket into the user session; without a compositor there
+# is nothing to capture.
+ConditionEnvironment=HYPRLAND_INSTANCE_SIGNATURE
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/game-capture
+# The capture is a best-effort side task and must never nag on failure.
+StandardOutput=journal
+StandardError=journal
+Nice=10
+IOSchedulingClass=idle

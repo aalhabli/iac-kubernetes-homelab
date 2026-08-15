@@ -20,7 +20,7 @@ One rule shapes most of the architecture: a service may run inside Kubernetes on
 |---|---|
 | **Server** | ThinkPad L14 Gen 4 — Intel 13th-gen, 64 GB RAM, 2 TB NVMe |
 | **Power** | The laptop battery doubles as a UPS for graceful shutdown ([ADR-0001](docs/decisions/adr-0001-proxmox-hypervisor.md)) |
-| **Backup target** | RTX 4090 workstation with an 8 TB NVMe running MinIO, reached over Tailscale ([ADR-0010](docs/decisions/adr-0010-workstation-integration.md)) |
+| **Backup target** | RTX 4090 workstation with an 8 TB NVMe running MinIO, on the same LAN segment ([ADR-0011](docs/decisions/adr-0011-flat-l2-network.md)) |
 | **Edge** | Cloudflare (DNS, Tunnel, WAF) in front of `alhabli.com` |
 | **Later** | Synology NAS for bulk storage and an extra backup tier |
 
@@ -61,7 +61,7 @@ graph TB
         end
     end
 
-    subgraph work["RTX 4090 Workstation — separate machine, WiFi, different NAT"]
+    subgraph work["RTX 4090 Workstation — separate machine, same LAN segment"]
         minio["MinIO on 8TB<br/>S3 backup target"]
         vllm["vLLM<br/>OpenAI-compatible API"]
     end
@@ -71,8 +71,8 @@ graph TB
     argo --> apps
 
     cf["Cloudflare Tunnel"] --> web
-    ts["Tailscale"] -.admin and Immich.-> cluster
-    cluster -.backups + AI, over Tailscale.-> work
+    ts["Tailscale"] -.admin and Immich, from off-network.-> cluster
+    cluster -.backups + AI, over the LAN.-> work
     lh -.backups.-> minio
     pbs -.images.-> minio
 
@@ -86,7 +86,7 @@ graph TB
 
 PiHole and PBS sit at the Proxmox layer on purpose. The cluster resolves images and peers by name, so DNS has to exist before the cluster does, and backups have to survive the cluster being gone. This is what makes the lab safe to power off and back on without manual intervention.
 
-The workstation is a separate machine on WiFi behind a different NAT than the ethernet-attached server. Bridging the router is out of scope, so the cluster reaches the MinIO backup target and the vLLM inference endpoint over Tailscale ([ADR-0010](docs/decisions/adr-0010-workstation-integration.md)).
+The workstation is a separate machine, and a dedicated switch puts it on the same L2 segment as the server, so the cluster reaches the MinIO backup target and the vLLM inference endpoint over the LAN ([ADR-0011](docs/decisions/adr-0011-flat-l2-network.md)). It was previously reached over Tailscale, from behind a different NAT ([ADR-0010](docs/decisions/adr-0010-workstation-integration.md), superseded). Tailscale is still how the lab is reached from outside the house.
 
 ## What runs where
 
@@ -96,7 +96,7 @@ The workstation is a separate machine on WiFi behind a different NAT than the et
 | Proxmox / PBS / core networking | Host / LXC | The substrate everything else runs on. |
 | Monitoring (Prometheus, Grafana) | Kubernetes | Observes the cluster from within. Losing it while the cluster is down is acceptable. |
 | Apps (Homepage, Immich, Plex, Syncthing, Paperless, website) | Kubernetes | Get self-healing, GitOps, ingress, and persistent volumes for free. |
-| MinIO backup target, vLLM inference | Workstation, over Tailscale | The 8 TB disk and the GPU live on a separate machine behind a different NAT. |
+| MinIO backup target, vLLM inference | Workstation, over the LAN | The 8 TB disk and the GPU live on a separate machine on the same switch. |
 
 ## How changes reach the cluster
 
@@ -128,7 +128,7 @@ Nobody runs `kubectl apply` against the cluster. CI validates the change (the wo
 ```mermaid
 graph LR
     pub["Public internet"] -->|website| cf["Cloudflare Tunnel<br/>no open inbound ports"]
-    phone["My phone / devices"] -->|private overlay| tail["Tailscale"]
+    phone["My phone / devices<br/>off-network"] -->|private overlay| tail["Tailscale"]
 
     cf --> traefik["Traefik ingress"]
     tail --> traefik
@@ -140,7 +140,7 @@ graph LR
     class cf,tail edge;
 ```
 
-Access is split by audience ([ADR-0007](docs/decisions/adr-0007-cloudflare-tunnel.md)). The website goes out through a Cloudflare Tunnel, so no router ports are open and the home IP stays hidden. Admin surfaces and Immich ride Tailscale. Immich skips the Cloudflare proxy because the 100 MB request cap and the media terms would break photo and video uploads; over Tailscale the native Android app backs up in the background without those limits.
+Access is split by audience ([ADR-0007](docs/decisions/adr-0007-cloudflare-tunnel.md)). The website goes out through a Cloudflare Tunnel, so no router ports are open and the home IP stays hidden. Admin surfaces and Immich ride Tailscale when I am away from home; on the LAN they are reached directly ([ADR-0011](docs/decisions/adr-0011-flat-l2-network.md)). Immich skips the Cloudflare proxy because the 100 MB request cap and the media terms would break photo and video uploads; over Tailscale the native Android app backs up in the background without those limits.
 
 ## Storage and backups
 
@@ -166,7 +166,7 @@ graph TB
     class cloud,nas plan;
 ```
 
-The backup strategy ([ADR-0009](docs/decisions/adr-0009-backup-strategy.md)) works toward 3-2-1 with a purpose-built tool per data shape: Longhorn backs up volumes, PBS backs up VM and LXC images, and Velero for cluster state comes later. Everything converges on the MinIO endpoint on the workstation, over Tailscale.
+The backup strategy ([ADR-0009](docs/decisions/adr-0009-backup-strategy.md)) works toward 3-2-1 with a purpose-built tool per data shape: Longhorn backs up volumes, PBS backs up VM and LXC images, and Velero for cluster state comes later. Everything converges on the MinIO endpoint on the workstation, over the LAN.
 
 Two limits are worth being honest about. Longhorn's replicas all share one physical NVMe, so replication guards against a VM or OS failure and does nothing for the loss of that disk — that's what the off-host MinIO copy is for. And until the off-site tier lands in Phase 7, every copy of the data lives in the same home; that gap is a tracked, deliberate deferral.
 
@@ -186,7 +186,8 @@ Two limits are worth being honest about. Longhorn's replicas all share one physi
 | Storage | Longhorn | [0008](docs/decisions/adr-0008-longhorn-storage.md) |
 | Backups | Longhorn + PBS + Velero to MinIO | [0009](docs/decisions/adr-0009-backup-strategy.md) |
 | Observability | kube-prometheus-stack, trimmed | roadmap Phase 5 |
-| GPU inference | vLLM on the workstation over Tailscale | [0010](docs/decisions/adr-0010-workstation-integration.md) |
+| GPU inference | vLLM on the workstation over the LAN | [0011](docs/decisions/adr-0011-flat-l2-network.md) |
+| Home network | Flat L2 segment on a dedicated switch | [0011](docs/decisions/adr-0011-flat-l2-network.md) |
 
 ## Repository layout
 

@@ -15,7 +15,7 @@ Phases map to GitHub milestones; work is tracked as issues under each.
 | **0** | Foundation — docs, decisions, host | [Done] |
 | **1** | IaC provisioning — OpenTofu + Ansible | [In Progress] |
 | **2** | Kubernetes + GitOps — k3s + ArgoCD | [Not Started] |
-| **3** | Minimum platform for apps — MetalLB, Longhorn, Tailscale, MinIO backups | [Not Started] |
+| **3** | Minimum platform for apps — MetalLB, Longhorn, Tailscale, MinIO backups over the LAN | [Not Started] |
 | **4** | First applications — Homepage, Plex, qBittorrent, Syncthing, Immich | [Not Started] |
 | **5** | Exposure, observability, backups — TLS, tunnel, Grafana, website | [Not Started] |
 | **6** | Further applications — Paperless, n8n, Open WebUI, vLLM | [Not Started] |
@@ -104,14 +104,17 @@ graph LR
 **Deliverables**
 - **MetalLB** providing real LoadBalancer IPs from a dedicated pool.
 - **Longhorn** as the default replicated `StorageClass` ([ADR-0008](decisions/adr-0008-longhorn-storage.md)).
-- **Tailscale** for the private/admin tier ([ADR-0007](decisions/adr-0007-cloudflare-tunnel.md)) — also the transport the cluster uses to reach the workstation across a separate NAT ([ADR-0010](decisions/adr-0010-workstation-integration.md)).
+- **Tailscale** for the private/admin tier, reaching the lab from off-network ([ADR-0007](decisions/adr-0007-cloudflare-tunnel.md)). It is no longer the transport to the workstation, which is now on the same L2 segment ([ADR-0011](decisions/adr-0011-flat-l2-network.md)).
 - The **ingress controller** decision resolved (Traefik vs ingress-nginx) and wired in.
-- **MinIO** on the workstation 8 TB as the S3 backup target, reached over Tailscale, with **Longhorn volume backups** wired to it ([ADR-0009](decisions/adr-0009-backup-strategy.md) / [ADR-0010](decisions/adr-0010-workstation-integration.md)).
+- **MinIO** on the workstation 8 TB as the S3 backup target, reached over the LAN, with **Longhorn volume backups** wired to it ([ADR-0009](decisions/adr-0009-backup-strategy.md) / [ADR-0011](decisions/adr-0011-flat-l2-network.md)).
+- A **stable address for the workstation** — a DHCP reservation or a PiHole local DNS record — so backup targets and the OpenTofu backend stop depending on a lease ([ADR-0011](decisions/adr-0011-flat-l2-network.md)).
+- **Host firewall and bind addresses on the workstation**, replacing the LAN isolation that the Tailscale-only binding used to provide ([ADR-0011](decisions/adr-0011-flat-l2-network.md)).
 
 **Exit criteria**
 - A `Service` of type LoadBalancer gets a MetalLB IP and is reachable.
 - A PVC binds and a pod mounts a replicated Longhorn volume.
-- A Longhorn volume backup lands in MinIO over Tailscale and restores successfully.
+- A Longhorn volume backup lands in MinIO over the LAN and restores successfully.
+- MinIO and vLLM refuse connections from a device on the LAN that is not the cluster or the admin workstation.
 
 ---
 
@@ -161,11 +164,11 @@ graph LR
 - **[Paperless-ngx](https://github.com/paperless-ngx/paperless-ngx)** — document management (OCR, Postgres, Redis, Tika) on persistent storage.
 - **[n8n](https://github.com/n8n-io/n8n)** — workflow automation orchestrating the AI content pipeline and site-visitor interactions.
 - **[Open WebUI](https://github.com/open-webui/open-webui)** — chat front-end wired to the external vLLM endpoint.
-- **Distributed AI (external)** — **[vLLM](https://github.com/vllm-project/vllm)** runs bare-metal on the RTX 4090 workstation to use the GPU directly, serving an OpenAI-compatible API back to the cluster over Tailscale ([ADR-0010](decisions/adr-0010-workstation-integration.md)). The workstation is a separate machine from the ThinkPad homelab server; the API rides the Tailnet, not the LAN. (Image generation via ComfyUI is a possible future addition.)
+- **Distributed AI (external)** — **[vLLM](https://github.com/vllm-project/vllm)** runs bare-metal on the RTX 4090 workstation to use the GPU directly, serving an OpenAI-compatible API back to the cluster over the LAN ([ADR-0011](decisions/adr-0011-flat-l2-network.md)). The workstation is a separate machine from the ThinkPad homelab server, sharing the same L2 segment. (Image generation via ComfyUI is a possible future addition.)
 
 **Exit criteria**
 - Paperless ingests and OCRs a document on persistent storage.
-- n8n runs a workflow that calls the vLLM endpoint over Tailscale; Open WebUI completes a chat via vLLM.
+- n8n runs a workflow that calls the vLLM endpoint over the LAN; Open WebUI completes a chat via vLLM.
 - Every Phase 6 app is a GitOps `Application` with backups configured.
 
 ---
@@ -200,7 +203,8 @@ graph LR
 | [0007](decisions/adr-0007-cloudflare-tunnel.md) | Tiered external access (Cloudflare Tunnel + Tailscale) |
 | [0008](decisions/adr-0008-longhorn-storage.md) | Longhorn for replicated persistent storage |
 | [0009](decisions/adr-0009-backup-strategy.md) | Layered 3-2-1 backup strategy |
-| [0010](decisions/adr-0010-workstation-integration.md) | Workstation (GPU + 8 TB) integrated over Tailscale across a separate NAT |
+| [0010](decisions/adr-0010-workstation-integration.md) | Workstation (GPU + 8 TB) integrated over Tailscale across a separate NAT *(superseded by 0011)* |
+| [0011](decisions/adr-0011-flat-l2-network.md) | Flat L2 network for workstation and homelab on a dedicated switch |
 
 ---
 
